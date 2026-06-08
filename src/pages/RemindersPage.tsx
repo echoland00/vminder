@@ -117,6 +117,7 @@ function ReminderForm({
 }) {
   const [inputText, setInputText]   = useState(editing?.message ?? '')
   const [contactId, setContactId]   = useState(editing?.contactId ?? '')
+  const [fallbackName, setFallback] = useState('')
   const [message, setMessage]       = useState(editing?.message ?? '')
   const [date, setDate]             = useState(editing ? new Date(editing.scheduledFor) : new Date())
   const [hour, setHour]             = useState(editing ? new Date(editing.scheduledFor).getHours() : 12)
@@ -135,8 +136,10 @@ function ReminderForm({
       setDate(parsed.scheduledFor)
       setHour(parsed.scheduledFor.getHours())
       setMinute(parsed.scheduledFor.getMinutes())
+      setFallback('')
       const c = contacts.find(c => c.name.includes(parsed.contactName) || parsed.contactName.includes(c.name))
-      if (c) setContactId(c.id)
+      if (c) { setContactId(c.id); setFallback('') }
+      else   { setContactId('');      setFallback(parsed.contactName) }
     }
   }, [inputText, contacts])
 
@@ -166,12 +169,14 @@ function ReminderForm({
   }
 
   async function save() {
-    if (!contactId || !message) return
+    if (!contactId && !fallbackName) return
+    if (!message) return
     const scheduled = new Date(date)
     scheduled.setHours(hour, minute, 0, 0)
+    const matched = contacts.find(c => c.id === contactId)
     const data = {
-      contactId,
-      contactName: contacts.find(c => c.id === contactId)?.name || 'Unknown',
+      contactId: contactId || '__new__',
+      contactName: matched?.name || fallbackName || 'Unknown',
       message,
       scheduledFor: scheduled.getTime(),
       status: 'pending' as const,
@@ -273,7 +278,7 @@ function ReminderForm({
         {/* Action buttons */}
         <div className="flex gap-2">
           <button onClick={onClose} className="btn-ghost flex-1">取消</button>
-          <button onClick={save} disabled={!contactId || !message} className="btn-primary flex-1 disabled:opacity-50">
+          <button onClick={save} disabled={(!contactId && !fallbackName) || !message} className="btn-primary flex-1 disabled:opacity-50">
             儲存
           </button>
         </div>
