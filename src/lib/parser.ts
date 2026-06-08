@@ -4,9 +4,9 @@ import type { ParsedInput } from '../types'
 
 const TRIGGER_WORDS = ['提醒', '通知', '提', '叫']   // long-first so 提醒 matches before 提
 const DAY_KEYWORDS  = ['聽日', '听日', '明天', '後天', '后天', '今日', '今天', '聽晚', '听晚', '今晚']
-const AMPM_PM       = ['晏晝', '下午', '下晝']
-const AMPM_AM       = ['上晝', '上午', '朝早']
-const MESSAGE_VERBS = ['食藥', '吃藥', '食嘢', '飲水', '覆診', '睇醫生', '開會', '買菜', '食飯', '打針', '覆call', '打電話']
+const AMPM_PM       = ['晏晝', '下午', '下晝', '聽晚', '听晚', '今晚', '晚上']
+const AMPM_AM       = ['上晝', '上午', '朝早', '早上']
+const MESSAGE_VERBS = ['食藥', '吃藥', '食嘢', '飲水', '覆診', '睇醫生', '開會', '去買菜', '買菜', '食飯', '打針', '覆call', '打電話']
 
 export function parseCantoneseInput(text: string): ParsedInput | null {
   const now = new Date()
@@ -14,6 +14,7 @@ export function parseCantoneseInput(text: string): ParsedInput | null {
   let minute = 0
   let dayOffset = 0
   let ampm: 'am' | 'pm' | null = null
+  let hasExplicitTime = false
 
   if      (AMPM_PM.some(k => text.includes(k))) ampm = 'pm'
   else if (AMPM_AM.some(k => text.includes(k))) ampm = 'am'
@@ -24,12 +25,10 @@ export function parseCantoneseInput(text: string): ParsedInput | null {
     new RegExp(`([0-9${cnDigitChars}]+)\\s*[點点]\\s*(?:([0-9${cnDigitChars}]+)\\s*[分分]?)?`),
     /([0-9]+)\s*:\s*([0-9]+)/,
   ]
-  const cnDigitMap: Record<string, number> = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'兩':2,'半':0.5 }
-  const parseCnNum = (s: string): number => {
+  const cnDigitMap: Record<string, number> = { '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,'兩':2,'半':30 }
+  const parseCnNum = (s: string, isMinute = false): number => {
     if (/^[0-9]+$/.test(s)) return parseInt(s)
-    if (s === '半') return 0.5
-    if (s.length === 1 && cnDigitMap[s] !== undefined) return cnDigitMap[s]
-    // Handle 十X (10+x) and X十 (x*10)
+    if (cnDigitMap[s] !== undefined) return cnDigitMap[s]
     if (s.includes('十')) {
       const [tens, ones] = s.split('十')
       const t = tens ? cnDigitMap[tens] || 1 : 1
@@ -41,8 +40,9 @@ export function parseCantoneseInput(text: string): ParsedInput | null {
   for (const pattern of timePatterns) {
     const m = text.match(pattern)
     if (m) {
+      hasExplicitTime = true
       const h = Math.floor(parseCnNum(m[1]) || 12)
-      const min = m[2] ? Math.floor(parseCnNum(m[2]) || 0) : 0
+      const min = m[2] ? Math.floor(parseCnNum(m[2], true)) : 0
       let hh = h
       if (ampm === 'pm' && hh < 12) hh += 12
       if (ampm === 'am' && hh === 12) hh = 0
@@ -60,11 +60,19 @@ export function parseCantoneseInput(text: string): ParsedInput | null {
   const scheduledFor = new Date(now)
   scheduledFor.setDate(now.getDate() + dayOffset)
   scheduledFor.setHours(hour, minute, 0, 0)
-  // Default times for non-time-explicit phrases
-  if (hour === 12 && minute === 0) {
-    if (text.includes('朝早') || text.includes('早上')) { hour = 9; ampm = 'am' }
-    else if (text.includes('下晝') || text.includes('晏晝') || text.includes('下午')) { hour = 14; ampm = 'pm' }
-    else if (text.includes('聽晚') || text.includes('今晚') || text.includes('晚上')) { hour = 20; ampm = 'pm' }
+
+  // Default times for phrases without an explicit time number
+  if (!hasExplicitTime) {
+    if (text.includes('朝早') || text.includes('早上') || text.includes('上晝') || text.includes('上午')) {
+      hour = 9; ampm = 'am'
+    }
+    else if (text.includes('下晝') || text.includes('晏晝') || text.includes('下午')) {
+      hour = 14; ampm = 'pm'
+    }
+    else if (text.includes('聽晚') || text.includes('今晚') || text.includes('晚上')) {
+      hour = 20; ampm = 'pm'
+    }
+    scheduledFor.setHours(hour, minute, 0, 0)
   }
 
   // Progressive strip: remove day, ampm, time, trigger
@@ -115,6 +123,8 @@ export function parseCantoneseInput(text: string): ParsedInput | null {
 
   // Clean contact name (strip particles)
   contactName = contactName.replace(/^(佢|你|我|他|她|它|請|麻烦|同|和)\s*/, '').trim()
+  // If contactName ends with 去, strip it (common Cantonese "去" before action)
+  contactName = contactName.replace(/\s*去$/, '').trim()
   // Clean message
   message = message.trim()
 
